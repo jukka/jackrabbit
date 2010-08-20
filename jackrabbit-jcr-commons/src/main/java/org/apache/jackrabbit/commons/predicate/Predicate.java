@@ -17,7 +17,7 @@
 package org.apache.jackrabbit.commons.predicate;
 
 /**
- * Interface for object predicates, i.e. functions that evalute a given
+ * Interface for object predicates, i.e. functions that evaluate a given
  * object to a boolean value.
  */
 public interface Predicate {
@@ -33,10 +33,20 @@ public interface Predicate {
     /**
      * Constant predicate that returns <code>true</code> for all objects.
      */
-    static final Predicate TRUE = new Predicate() {
+    Predicate TRUE = new Predicate() {
         public boolean evaluate(Object object) {
             return true;
         }
     };
 
+    /**
+     * Constant predicate that returns <code>false</code> for all objects.
+     */
+    Predicate FALSE = new Predicate() {
+        public boolean evaluate(Object object) {
+            return false;
+        }
+    };
+
 }
+
