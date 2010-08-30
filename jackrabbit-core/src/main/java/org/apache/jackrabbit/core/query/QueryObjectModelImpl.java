@@ -19,6 +19,7 @@ package org.apache.jackrabbit.core.query;
 import javax.jcr.Node;
 import javax.jcr.RepositoryException;
 import javax.jcr.query.InvalidQueryException;
+import javax.jcr.query.QueryResult;
 import javax.jcr.query.qom.Column;
 import javax.jcr.query.qom.Constraint;
 import javax.jcr.query.qom.Ordering;
@@ -28,6 +29,7 @@ import javax.jcr.query.qom.Source;
 import org.apache.jackrabbit.commons.query.QueryObjectModelBuilderRegistry;
 import org.apache.jackrabbit.core.ItemManager;
 import org.apache.jackrabbit.core.SessionImpl;
+import org.apache.jackrabbit.core.query.lucene.join.QueryEngine;
 import org.apache.jackrabbit.spi.commons.query.qom.QueryObjectModelTree;
 
 /**
@@ -44,6 +46,7 @@ public class QueryObjectModelImpl extends QueryImpl implements QueryObjectModel 
      * {@inheritDoc}
      * @throws UnsupportedOperationException always.
      */
+    @Override
     public void init(SessionImpl session,
                      ItemManager itemMgr,
                      QueryHandler handler,
@@ -84,6 +87,13 @@ public class QueryObjectModelImpl extends QueryImpl implements QueryObjectModel 
         this.statement = QueryObjectModelBuilderRegistry.getQueryObjectModelBuilder(language).toString(this);
         this.query = handler.createExecutableQuery(session, itemMgr, qomTree);
         setInitialized();
+    }
+
+
+    @Override
+    public QueryResult execute() throws RepositoryException {
+        return new QueryEngine(session).execute(
+                getColumns(), getSource(), getConstraint(), getOrderings());
     }
 
     //-------------------------< QueryObjectModel >-----------------------------
