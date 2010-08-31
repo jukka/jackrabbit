@@ -21,6 +21,14 @@ import javax.jcr.PropertyType;
 import javax.jcr.nodetype.NodeType;
 import javax.jcr.query.Query;
 import javax.jcr.query.QueryResult;
+import javax.jcr.query.Row;
+import javax.jcr.query.qom.Join;
+import javax.jcr.query.qom.QueryObjectModel;
+import javax.jcr.query.qom.QueryObjectModelConstants;
+import javax.jcr.query.qom.QueryObjectModelFactory;
+
+import org.apache.jackrabbit.commons.JcrUtils;
+import org.apache.jackrabbit.core.query.lucene.join.QueryEngine;
 
 /**
  * Test case for
@@ -59,13 +67,32 @@ public class JoinTest extends AbstractQueryTest {
         super.tearDown();
     }
 
-    public void testMultiValuedReferenceJoin() throws Exception {
+    public void disabledTestMultiValuedReferenceJoin() throws Exception {
         String join =
             "SELECT a.*, b.*"
             + " FROM [nt:base] AS a"
             + " INNER JOIN [nt:base] AS b ON a.[jcr:uuid] = b.testref";
         QueryResult result = qm.createQuery(join, Query.JCR_SQL2).execute();
         checkResult(result, 2);
+    }
+
+    public void testFoo() throws Exception {
+        QueryObjectModelFactory factory =
+            superuser.getWorkspace().getQueryManager().getQOMFactory();
+        QueryObjectModel qom = factory.createQuery(
+                factory.join(
+                        factory.selector("nt:unstructured", "a"),
+                        factory.selector("nt:unstructured", "b"),
+                        QueryObjectModelConstants.JCR_JOIN_TYPE_INNER,
+                        factory.equiJoinCondition("a", "jcr:uuid", "b", "testref")),
+                factory.childNode("a", "/testroot/jointest"),
+                null, null);
+        QueryResult result = new QueryEngine(superuser).execute(
+                qom.getColumns(), qom.getSource(),
+                qom.getConstraint(), qom.getOrderings());
+        for (Row row : JcrUtils.getRows(result)) {
+            System.out.println(row);
+        }
     }
 
 }
