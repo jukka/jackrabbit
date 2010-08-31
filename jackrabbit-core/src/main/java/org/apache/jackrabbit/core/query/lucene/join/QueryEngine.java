@@ -16,6 +16,7 @@
  */
 package org.apache.jackrabbit.core.query.lucene.join;
 
+import static javax.jcr.query.qom.QueryObjectModelConstants.JCR_JOIN_TYPE_RIGHT_OUTER;
 import static javax.jcr.query.qom.QueryObjectModelConstants.JCR_ORDER_DESCENDING;
 
 import java.util.ArrayList;
@@ -48,6 +49,7 @@ import javax.jcr.query.qom.Join;
 import javax.jcr.query.qom.Operand;
 import javax.jcr.query.qom.Ordering;
 import javax.jcr.query.qom.PropertyValue;
+import javax.jcr.query.qom.QueryObjectModelConstants;
 import javax.jcr.query.qom.QueryObjectModelFactory;
 import javax.jcr.query.qom.Selector;
 import javax.jcr.query.qom.Source;
@@ -163,16 +165,21 @@ public abstract class QueryEngine {
             leftRows.add(row);
         }
 
-        Source right = join.getRight();
-        Constraint rightConstraint = Constraints.and(
-                qomFactory,
-                merger.getRightJoinConstraint(leftRows),
-                splitter.getRightConstraint());
-        System.out.println("FROM " + right + " WHERE " + rightConstraint);
-        QueryResult rightResult = execute(null, right, rightConstraint, null);
+        RowIterator rightRows;
+        if (leftRows.isEmpty()
+                && !JCR_JOIN_TYPE_RIGHT_OUTER.equals(join.getJoinType())) {
+            rightRows = new RowIteratorAdapter(Collections.emptySet());
+        } else {
+            Source right = join.getRight();
+            Constraint rightConstraint = Constraints.and(
+                    qomFactory,
+                    merger.getRightJoinConstraint(leftRows),
+                    splitter.getRightConstraint());
+            System.out.println("FROM " + right + " WHERE " + rightConstraint);
+            rightRows = execute(null, right, rightConstraint, null).getRows();
+        }
 
-        return merger.merge(
-                new RowIteratorAdapter(leftRows), rightResult.getRows());
+        return merger.merge(new RowIteratorAdapter(leftRows), rightRows);
     }
 
     private Set<String> getPaths(

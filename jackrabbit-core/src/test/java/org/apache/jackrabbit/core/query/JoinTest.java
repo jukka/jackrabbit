@@ -29,6 +29,7 @@ import javax.jcr.query.qom.QueryObjectModelFactory;
 
 import org.apache.jackrabbit.commons.JcrUtils;
 import org.apache.jackrabbit.core.query.lucene.join.QueryEngine;
+import org.apache.poi.hssf.record.formula.functions.Vlookup;
 
 /**
  * Test case for
@@ -85,7 +86,11 @@ public class JoinTest extends AbstractQueryTest {
                         factory.selector("nt:unstructured", "b"),
                         QueryObjectModelConstants.JCR_JOIN_TYPE_INNER,
                         factory.equiJoinCondition("a", "jcr:uuid", "b", "testref")),
-                factory.childNode("a", "/testroot/jointest"),
+                factory.comparison(
+                        factory.propertyValue("a", "jcr:mixinTypes"),
+                        QueryObjectModelConstants.JCR_OPERATOR_EQUAL_TO,
+                        factory.literal(superuser.getValueFactory().createValue(
+                                "mix:referenceable", PropertyType.NAME))),
                 null, null);
         QueryResult result = qom.execute();
         for (Row row : JcrUtils.getRows(result)) {

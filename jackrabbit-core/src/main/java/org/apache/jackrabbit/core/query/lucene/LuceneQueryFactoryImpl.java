@@ -16,7 +16,20 @@
  */
 package org.apache.jackrabbit.core.query.lucene;
 
+import static javax.jcr.PropertyType.DATE;
+import static javax.jcr.PropertyType.DOUBLE;
+import static javax.jcr.PropertyType.LONG;
+import static javax.jcr.PropertyType.NAME;
+import static javax.jcr.PropertyType.STRING;
+import static javax.jcr.PropertyType.UNDEFINED;
 import static javax.jcr.query.qom.QueryObjectModelConstants.JCR_OPERATOR_EQUAL_TO;
+import static javax.jcr.query.qom.QueryObjectModelConstants.JCR_OPERATOR_GREATER_THAN;
+import static javax.jcr.query.qom.QueryObjectModelConstants.JCR_OPERATOR_GREATER_THAN_OR_EQUAL_TO;
+import static javax.jcr.query.qom.QueryObjectModelConstants.JCR_OPERATOR_LESS_THAN;
+import static javax.jcr.query.qom.QueryObjectModelConstants.JCR_OPERATOR_LESS_THAN_OR_EQUAL_TO;
+import static javax.jcr.query.qom.QueryObjectModelConstants.JCR_OPERATOR_LIKE;
+import static javax.jcr.query.qom.QueryObjectModelConstants.JCR_OPERATOR_NOT_EQUAL_TO;
+import static org.apache.jackrabbit.core.query.lucene.FieldNames.PROPERTIES;
 import static org.apache.lucene.search.BooleanClause.Occur.MUST;
 import static org.apache.lucene.search.BooleanClause.Occur.SHOULD;
 
@@ -25,12 +38,14 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
+import javax.jcr.PropertyType;
 import javax.jcr.RepositoryException;
 import javax.jcr.UnsupportedRepositoryOperationException;
 import javax.jcr.Value;
 import javax.jcr.nodetype.NodeType;
 import javax.jcr.nodetype.NodeTypeIterator;
 import javax.jcr.nodetype.NodeTypeManager;
+import javax.jcr.nodetype.PropertyDefinition;
 import javax.jcr.query.InvalidQueryException;
 import javax.jcr.query.qom.And;
 import javax.jcr.query.qom.BindVariableValue;
@@ -67,9 +82,9 @@ import org.apache.lucene.index.Term;
 import org.apache.lucene.queryParser.ParseException;
 import org.apache.lucene.queryParser.QueryParser;
 import org.apache.lucene.search.BooleanClause;
+import org.apache.lucene.search.BooleanClause.Occur;
 import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.Query;
-import org.apache.lucene.search.BooleanClause.Occur;
 
 /**
  * <code>LuceneQueryFactoryImpl</code> implements a lucene query factory.
@@ -212,17 +227,19 @@ public class LuceneQueryFactoryImpl implements LuceneQueryFactory {
         return q;
     }
 
-    public Query create(Constraint constraint) throws RepositoryException {
+    public Query create(
+            Constraint constraint, Map<String, NodeType> selectorMap)
+            throws RepositoryException {
         if (constraint instanceof And) {
-            return getAndQuery((And) constraint);
+            return getAndQuery((And) constraint, selectorMap);
         } else if (constraint instanceof Or) {
-            return getOrQuery((Or) constraint);
+            return getOrQuery((Or) constraint, selectorMap);
         } else if (constraint instanceof Not) {
-            return getNotQuery((Not) constraint);
+            return getNotQuery((Not) constraint, selectorMap);
         } else if (constraint instanceof PropertyExistence) {
             return getPropertyExistenceQuery((PropertyExistence) constraint);
         } else if (constraint instanceof Comparison) {
-            return getComparisonQuery((Comparison) constraint);
+            return getComparisonQuery((Comparison) constraint, selectorMap);
         } else if (constraint instanceof FullTextSearch) {
             return null; // FIXME
         } else if (constraint instanceof SameNode) {
@@ -237,59 +254,126 @@ public class LuceneQueryFactoryImpl implements LuceneQueryFactory {
         }
     }
 
-    private BooleanQuery getAndQuery(And and) throws RepositoryException {
+    private BooleanQuery getAndQuery(And and, Map<String, NodeType> selectorMap)
+            throws RepositoryException {
         BooleanQuery query = new BooleanQuery();
-        addBooleanConstraint(query, and.getConstraint1(), MUST);
-        addBooleanConstraint(query, and.getConstraint2(), MUST);
+        addBooleanConstraint(query, and.getConstraint1(), MUST, selectorMap);
+        addBooleanConstraint(query, and.getConstraint2(), MUST, selectorMap);
         return query;
     }
 
-    private BooleanQuery getOrQuery(Or or) throws RepositoryException {
+    private BooleanQuery getOrQuery(Or or, Map<String, NodeType> selectorMap)
+            throws RepositoryException {
         BooleanQuery query = new BooleanQuery();
-        addBooleanConstraint(query, or.getConstraint1(), SHOULD);
-        addBooleanConstraint(query, or.getConstraint2(), SHOULD);
+        addBooleanConstraint(query, or.getConstraint1(), SHOULD, selectorMap);
+        addBooleanConstraint(query, or.getConstraint2(), SHOULD, selectorMap);
         return query;
     }
 
     private void addBooleanConstraint(
-            BooleanQuery query, Constraint constraint, Occur occur)
+            BooleanQuery query, Constraint constraint, Occur occur,
+            Map<String, NodeType> selectorMap)
             throws RepositoryException {
         if (occur == MUST && constraint instanceof And) {
             And and = (And) constraint;
-            addBooleanConstraint(query, and.getConstraint1(), occur);
-            addBooleanConstraint(query, and.getConstraint2(), occur);
+            addBooleanConstraint(query, and.getConstraint1(), occur, selectorMap);
+            addBooleanConstraint(query, and.getConstraint2(), occur, selectorMap);
         } else if (occur == SHOULD && constraint instanceof Or) {
             Or or = (Or) constraint;
-            addBooleanConstraint(query, or.getConstraint1(), occur);
-            addBooleanConstraint(query, or.getConstraint2(), occur);
+            addBooleanConstraint(query, or.getConstraint1(), occur, selectorMap);
+            addBooleanConstraint(query, or.getConstraint2(), occur, selectorMap);
         } else {
-            query.add(create(constraint), occur);
+            query.add(create(constraint, selectorMap), occur);
         }
     }
 
-    private NotQuery getNotQuery(Not not) throws RepositoryException {
-        return new NotQuery(create(not.getConstraint()));
-    }
-
-    private Query getPropertyExistenceQuery(PropertyExistence pe)
+    private NotQuery getNotQuery(Not not, Map<String, NodeType> selectorMap)
             throws RepositoryException {
-        throw new UnsupportedRepositoryOperationException(); // FIXME
+        return new NotQuery(create(not.getConstraint(), selectorMap));
     }
 
-    private Query getComparisonQuery(Comparison comparison)
+    private Query getPropertyExistenceQuery(PropertyExistence property)
+            throws RepositoryException {
+        String name = npResolver.getJCRName(session.getQName(
+                property.getPropertyName()));
+        return Util.createMatchAllQuery(name, version);
+    }
+
+    private Query getComparisonQuery(
+            Comparison comparison, Map<String, NodeType> selectorMap)
             throws RepositoryException {
         DynamicOperand operand = comparison.getOperand1();
-        if (operand instanceof PropertyValue
-                && JCR_OPERATOR_EQUAL_TO.equals(comparison.getOperator())) {
+        if (operand instanceof PropertyValue) {
             PropertyValue property = (PropertyValue) operand;
             String field = npResolver.getJCRName(session.getQName(
                     property.getPropertyName()));
-            Value value = getValue(comparison.getOperand2());
-            return new JackrabbitTermQuery(new Term(
-                    FieldNames.PROPERTIES,
-                    FieldNames.createNamedValue(field, value.getString())));
+            int type = PropertyType.UNDEFINED;
+            NodeType nt = selectorMap.get(property.getSelectorName());
+            if (nt != null) {
+                for (PropertyDefinition pd : nt.getPropertyDefinitions()) {
+                    if (pd.getName().equals(property.getPropertyName())) {
+                        type = pd.getRequiredType();
+                    }
+                }
+            }
+            return getPropertyValueQuery(
+                    field, comparison.getOperator(),
+                    getValue(comparison.getOperand2()), type);
         } else {
             throw new UnsupportedRepositoryOperationException(); // FIXME
+        }
+    }
+
+    private Query getPropertyValueQuery(
+            String field, String operator, Value value, int type)
+            throws RepositoryException {
+        Term term = getTerm(field, getValueString(value, type));
+        if (JCR_OPERATOR_EQUAL_TO.equals(operator)) {
+            return new JackrabbitTermQuery(term);
+        } else if (JCR_OPERATOR_GREATER_THAN.equals(operator)) {
+            return new RangeQuery(term, getTerm(field, "\uFFFF"), false);
+        } else if (JCR_OPERATOR_GREATER_THAN_OR_EQUAL_TO.equals(operator)) {
+            return new RangeQuery(term, getTerm(field, "\uFFFF"), true);
+        } else if (JCR_OPERATOR_LESS_THAN.equals(operator)) {
+            return new RangeQuery(getTerm(field, ""), term, false);
+        } else if (JCR_OPERATOR_LESS_THAN_OR_EQUAL_TO.equals(operator)) {
+            return new RangeQuery(getTerm(field, ""), term, true);
+        } else if (JCR_OPERATOR_NOT_EQUAL_TO.equals(operator)) {
+            BooleanQuery or = new BooleanQuery();
+            or.add(new RangeQuery(getTerm(field, ""), term, false), SHOULD);
+            or.add(new RangeQuery(term, getTerm(field, "\uFFFF"), false), SHOULD);
+            return or;
+        } else if (JCR_OPERATOR_LIKE.equals(operator)) {
+            throw new UnsupportedRepositoryOperationException(); // FIXME
+        } else {
+            throw new UnsupportedRepositoryOperationException(); // FIXME
+        }
+    }
+
+    private Term getTerm(String field, String value) {
+        return new Term(PROPERTIES, FieldNames.createNamedValue(field, value));
+    }
+
+    private String getValueString(Value value, int type)
+            throws RepositoryException {
+        switch (value.getType()) {
+        case DATE:
+            return DateField.dateToString(value.getDate().getTime());
+        case DOUBLE:
+            return DoubleField.doubleToString(value.getDouble());
+        case LONG:
+            return LongField.longToString(value.getLong());
+        case NAME:
+            return npResolver.getJCRName(session.getQName(value.getString()));
+        default:
+            String string = value.getString();
+            if (type != UNDEFINED && type != STRING) {
+                return getValueString(
+                        session.getValueFactory().createValue(string, type),
+                        UNDEFINED);
+            } else {
+                return string;
+            }
         }
     }
 
@@ -298,15 +382,15 @@ public class LuceneQueryFactoryImpl implements LuceneQueryFactory {
             Literal literal = (Literal) operand;
             return literal.getLiteralValue();
         } else if (operand instanceof BindVariableValue) {
-            throw new UnsupportedRepositoryOperationException(); // FIXME
-//            BindVariableValue bind = (BindVariableValue) operand;
-//            Value value = variables.get(bind.getBindVariableName());
-//            if (value != null) {
-//                return value;
-//            } else {
-//                throw new RepositoryException(
-//                        "Unknown variable name: " + bind.getBindVariableName());
-//            }
+            BindVariableValue bind = (BindVariableValue) operand;
+            Value value = bindVariables.get(session.getQName(
+                    bind.getBindVariableName()));
+            if (value != null) {
+                return value;
+            } else {
+                throw new RepositoryException(
+                        "Unknown variable name: " + bind.getBindVariableName());
+            }
         } else {
             throw new UnsupportedRepositoryOperationException(
                     "Unknown static operand type: " + operand);

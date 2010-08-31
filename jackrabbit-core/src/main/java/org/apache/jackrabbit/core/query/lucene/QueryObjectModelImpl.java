@@ -131,21 +131,23 @@ public class QueryObjectModelImpl extends AbstractQueryImpl {
                 if (constraint != null) {
                     BooleanQuery b = new BooleanQuery();
                     b.add(query, Occur.MUST);
-                    b.add(factory.create(constraint), Occur.MUST);
+                    b.add(factory.create(constraint, selectorMap), Occur.MUST);
                     query = b;
                 }
                 try {
                     JackrabbitIndexSearcher searcher = new JackrabbitIndexSearcher(
                             session, index.getIndexReader(),
                             index.getContext().getItemStateManager());
+                    System.out.println("Evaluating Lucene query: " + query);
                     QueryHits hits = searcher.evaluate(query);
                     ScoreNode node = hits.nextScoreNode();
                     while (node != null) {
+                        System.out.println("Adding score node " + node);
                         rows.add(new SelectorRow(
                                 columnMap, evaluator, selectorName,
                                 session.getNodeByIdentifier(node.getNodeId().toString()),
                                 node.getScore()));
-                        hits.nextScoreNode();
+                        node = hits.nextScoreNode();
                     }
                 } catch (IOException e) {
                     throw new RepositoryException(e);
