@@ -87,9 +87,7 @@ public class JoinTest extends AbstractQueryTest {
                         factory.equiJoinCondition("a", "jcr:uuid", "b", "testref")),
                 factory.childNode("a", "/testroot/jointest"),
                 null, null);
-        QueryResult result = new QueryEngine(superuser).execute(
-                qom.getColumns(), qom.getSource(),
-                qom.getConstraint(), qom.getOrderings());
+        QueryResult result = qom.execute();
         for (Row row : JcrUtils.getRows(result)) {
             System.out.println(row);
         }
