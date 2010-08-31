@@ -16,8 +16,6 @@
  */
 package org.apache.jackrabbit.core.query.lucene.join;
 
-import static javax.jcr.query.qom.QueryObjectModelConstants.JCR_OPERATOR_EQUAL_TO;
-import static javax.jcr.query.qom.QueryObjectModelConstants.JCR_OPERATOR_GREATER_THAN_OR_EQUAL_TO;
 import static javax.jcr.query.qom.QueryObjectModelConstants.JCR_ORDER_DESCENDING;
 
 import java.util.ArrayList;
@@ -32,8 +30,6 @@ import java.util.Set;
 
 import javax.jcr.Node;
 import javax.jcr.PathNotFoundException;
-import javax.jcr.PropertyType;
-import javax.jcr.RangeIterator;
 import javax.jcr.RepositoryException;
 import javax.jcr.Session;
 import javax.jcr.UnsupportedRepositoryOperationException;
@@ -43,21 +39,13 @@ import javax.jcr.Workspace;
 import javax.jcr.nodetype.NodeType;
 import javax.jcr.nodetype.NodeTypeManager;
 import javax.jcr.nodetype.PropertyDefinition;
-import javax.jcr.query.Query;
-import javax.jcr.query.QueryManager;
 import javax.jcr.query.QueryResult;
 import javax.jcr.query.Row;
 import javax.jcr.query.RowIterator;
-import javax.jcr.query.qom.And;
-import javax.jcr.query.qom.ChildNode;
 import javax.jcr.query.qom.Column;
-import javax.jcr.query.qom.Comparison;
 import javax.jcr.query.qom.Constraint;
 import javax.jcr.query.qom.Join;
-import javax.jcr.query.qom.Literal;
-import javax.jcr.query.qom.Not;
 import javax.jcr.query.qom.Operand;
-import javax.jcr.query.qom.Or;
 import javax.jcr.query.qom.Ordering;
 import javax.jcr.query.qom.PropertyValue;
 import javax.jcr.query.qom.QueryObjectModelFactory;
@@ -65,10 +53,9 @@ import javax.jcr.query.qom.Selector;
 import javax.jcr.query.qom.Source;
 
 import org.apache.jackrabbit.commons.JcrUtils;
-import org.apache.jackrabbit.commons.iterator.RangeIteratorAdapter;
 import org.apache.jackrabbit.commons.iterator.RowIteratorAdapter;
 
-public class QueryEngine {
+public abstract class QueryEngine {
 
     /**
      * Row comparator.
@@ -117,20 +104,16 @@ public class QueryEngine {
 
     }
 
-    private final Session session;
-
     private final NodeTypeManager ntManager;
 
     private final QueryObjectModelFactory qomFactory;
 
     private final ValueFactory valueFactory;
 
-    private final OperandEvaluator evaluator;
+    protected final OperandEvaluator evaluator;
 
     public QueryEngine(Session session, Map<String, Value> variables)
             throws RepositoryException {
-        this.session = session;
-
         Workspace workspace = session.getWorkspace();
         this.ntManager = workspace.getNodeTypeManager();
         this.qomFactory = workspace.getQueryManager().getQOMFactory();
@@ -210,101 +193,12 @@ public class QueryEngine {
         return paths;
     }
 
-    private String toSqlConstraint(Constraint constraint)
-            throws RepositoryException {
-        if (constraint instanceof And) {
-            And and = (And) constraint;
-            String c1 = toSqlConstraint(and.getConstraint1());
-            String c2 = toSqlConstraint(and.getConstraint2());
-            return "(" + c1 + ") AND (" + c2 + ")";
-        } else if (constraint instanceof Or) {
-            Or or = (Or) constraint;
-            String c1 = toSqlConstraint(or.getConstraint1());
-            String c2 = toSqlConstraint(or.getConstraint2());
-            return "(" + c1 + ") OR (" + c2 + ")";
-        } else if (constraint instanceof Not) {
-            Not or = (Not) constraint;
-            return "NOT (" + toSqlConstraint(or.getConstraint()) + ")";
-        } else if (constraint instanceof Comparison) {
-            Comparison c = (Comparison) constraint;
-            String left = toSqlOperand(c.getOperand1());
-            String right = toSqlOperand(c.getOperand2());
-            if (c.getOperator().equals(JCR_OPERATOR_EQUAL_TO)) {
-                return left + " = " + right;
-            } else if (c.getOperator().equals(JCR_OPERATOR_GREATER_THAN_OR_EQUAL_TO)) {
-                return left + " >= " + right;
-            } else {
-                throw new RepositoryException("Unsupported comparison: " + c);
-            }
-        } else if (constraint instanceof ChildNode) {
-            ChildNode cn = (ChildNode) constraint;
-            return "jcr:path LIKE '" + cn.getParentPath() + "/%'";
-        } else  {
-            throw new RepositoryException("Unsupported constraint: " + constraint);
-        }
-    }
-
-    private String toSqlOperand(Operand operand) throws RepositoryException {
-        if (operand instanceof PropertyValue) {
-            PropertyValue pv = (PropertyValue) operand;
-            return pv.getPropertyName();
-        } else if (operand instanceof Literal) {
-            Literal literal = (Literal) operand;
-            Value value = literal.getLiteralValue();
-            int type = value.getType();
-            if (type == PropertyType.LONG || type == PropertyType.DOUBLE) {
-                return value.getString();
-            } else if (type == PropertyType.DATE) {
-                return "TIMESTAMP '" + value.getString() + "'";
-            } else {
-                return "'" + value.getString() + "'";
-            }
-        } else {
-            throw new RepositoryException("Uknown operand type: " + operand);
-        }
-    }
-
-    protected QueryResult execute(
+    protected abstract QueryResult execute(
             Column[] columns, Selector selector,
             Constraint constraint, Ordering[] orderings)
-            throws RepositoryException {
-        StringBuilder builder = new StringBuilder();
-        builder.append("SELECT * FROM ");
-        builder.append(selector.getNodeTypeName());
-        if (constraint != null) {
-            builder.append(" WHERE ");
-            builder.append(toSqlConstraint(constraint));
-        }
-        System.out.println(builder.toString());
+            throws RepositoryException;
 
-        QueryManager manager = session.getWorkspace().getQueryManager();
-        Query query = manager.createQuery(builder.toString(), Query.SQL);
-
-        Map<String, NodeType> selectorMap = getSelectorNames(selector);
-        final String[] selectorNames =
-            selectorMap.keySet().toArray(new String[selectorMap.size()]);
-
-        final Map<String, PropertyValue> columnMap =
-            getColumnMap(columns, selectorMap);
-        final String[] columnNames =
-            columnMap.keySet().toArray(new String[columnMap.size()]);
-
-        final String selectorName = selector.getSelectorName();
-        RangeIterator rows = new RangeIteratorAdapter(query.execute().getNodes()) {
-            @Override
-            public Object next() {
-                Node node = (Node) super.next();
-                return new SelectorRow(
-                        columnMap, evaluator, selectorName, node, 1.0);
-            }
-        };
-
-        QueryResult result = new SimpleQueryResult(
-                columnNames, selectorNames, new RowIteratorAdapter(rows));
-        return sort(result, orderings);
-    }
-
-    private Map<String, PropertyValue> getColumnMap(
+    protected Map<String, PropertyValue> getColumnMap(
             Column[] columns, Map<String, NodeType> selectors)
             throws RepositoryException {
         Map<String, PropertyValue> map =
@@ -345,7 +239,7 @@ public class QueryEngine {
         return map;
     }
 
-    private Map<String, NodeType> getSelectorNames(Source source)
+    protected Map<String, NodeType> getSelectorNames(Source source)
             throws RepositoryException {
         if (source instanceof Selector) {
             Selector selector = (Selector) source;

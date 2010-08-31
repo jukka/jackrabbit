@@ -16,29 +16,35 @@
  */
 package org.apache.jackrabbit.core.query.lucene;
 
-import java.util.List;
+import java.io.IOException;
 import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 import javax.jcr.RepositoryException;
-import javax.jcr.nodetype.PropertyDefinition;
-import javax.jcr.query.QueryResult;
+import javax.jcr.nodetype.NodeType;
 import javax.jcr.query.InvalidQueryException;
-import javax.jcr.query.qom.QueryObjectModelFactory;
+import javax.jcr.query.QueryResult;
+import javax.jcr.query.Row;
+import javax.jcr.query.qom.Column;
+import javax.jcr.query.qom.Ordering;
+import javax.jcr.query.qom.PropertyValue;
+import javax.jcr.query.qom.Selector;
 
+import org.apache.jackrabbit.commons.iterator.RowIteratorAdapter;
 import org.apache.jackrabbit.core.ItemManager;
 import org.apache.jackrabbit.core.SessionImpl;
-import org.apache.jackrabbit.core.nodetype.NodeTypeManagerImpl;
-import org.apache.jackrabbit.core.nodetype.NodeTypeImpl;
 import org.apache.jackrabbit.core.query.PropertyTypeRegistry;
-import org.apache.jackrabbit.core.query.lucene.constraint.Constraint;
-import org.apache.jackrabbit.core.query.lucene.constraint.ConstraintBuilder;
+import org.apache.jackrabbit.core.query.lucene.join.QueryEngine;
+import org.apache.jackrabbit.core.query.lucene.join.SelectorRow;
+import org.apache.jackrabbit.core.query.lucene.join.SimpleQueryResult;
 import org.apache.jackrabbit.spi.commons.query.qom.BindVariableValueImpl;
-import org.apache.jackrabbit.spi.commons.query.qom.ColumnImpl;
 import org.apache.jackrabbit.spi.commons.query.qom.DefaultTraversingQOMTreeVisitor;
 import org.apache.jackrabbit.spi.commons.query.qom.QueryObjectModelTree;
 import org.apache.jackrabbit.spi.commons.query.qom.SelectorImpl;
-import org.apache.jackrabbit.spi.commons.query.qom.OrderingImpl;
-import org.apache.jackrabbit.spi.commons.nodetype.PropertyDefinitionImpl;
+import org.apache.lucene.search.BooleanClause.Occur;
+import org.apache.lucene.search.BooleanQuery;
+import org.apache.lucene.search.Query;
 
 /**
  * <code>QueryObjectModelImpl</code>...
@@ -96,49 +102,66 @@ public class QueryObjectModelImpl extends AbstractQueryImpl {
      */
     public QueryResult execute(long offset, long limit)
             throws RepositoryException {
-        LuceneQueryFactory factory = new LuceneQueryFactoryImpl(
+        final LuceneQueryFactoryImpl factory = new LuceneQueryFactoryImpl(
                 session, index.getContext().getHierarchyManager(),
                 index.getNamespaceMappings(), index.getTextAnalyzer(),
                 index.getSynonymProvider(), index.getIndexFormatVersion(),
                 getBindVariableValues());
 
-        MultiColumnQuery query = factory.create(qomTree.getSource());
+        QueryEngine engine = new QueryEngine(session) {
+            @Override
+            protected QueryResult execute(
+                    Column[] columns, Selector selector,
+                    javax.jcr.query.qom.Constraint constraint,
+                    Ordering[] orderings)
+                    throws RepositoryException {
+                Map<String, NodeType> selectorMap = getSelectorNames(selector);
+                final String[] selectorNames =
+                    selectorMap.keySet().toArray(new String[selectorMap.size()]);
 
-        if (qomTree.getConstraint() != null) {
-            Constraint c = ConstraintBuilder.create(qomTree.getConstraint(),
-                    getBindVariableValues(), qomTree.getSource().getSelectors(),
-                    factory, session.getValueFactory());
-            query = new FilterMultiColumnQuery(query, c);
-        }
+                final Map<String, PropertyValue> columnMap =
+                    getColumnMap(columns, selectorMap);
+                final String[] columnNames =
+                    columnMap.keySet().toArray(new String[columnMap.size()]);
 
+                List<Row> rows = new ArrayList<Row>();
 
-        List<ColumnImpl> columns = new ArrayList<ColumnImpl>();
-        // expand columns without name
-        for (ColumnImpl column : qomTree.getColumns()) {
-            if (column.getColumnName() == null) {
-                QueryObjectModelFactory qomFactory = getQOMFactory();
-                NodeTypeManagerImpl ntMgr = session.getNodeTypeManager();
-                SelectorImpl selector = qomTree.getSelector(column.getSelectorQName());
-                NodeTypeImpl nt = ntMgr.getNodeType(selector.getNodeTypeQName());
-                for (PropertyDefinition pd : nt.getPropertyDefinitions()) {
-                    PropertyDefinitionImpl propDef = (PropertyDefinitionImpl) pd;
-                    if (!propDef.unwrap().definesResidual() && !propDef.isMultiple()) {
-                        String sn = selector.getSelectorName();
-                        String pn = propDef.getName();
-                        columns.add((ColumnImpl) qomFactory.column(sn, pn, sn + "." + pn));
-                    }
+                String selectorName = selector.getSelectorName();
+                Query query = factory.create(selector);
+                if (constraint != null) {
+                    BooleanQuery b = new BooleanQuery();
+                    b.add(query, Occur.MUST);
+                    b.add(factory.create(constraint), Occur.MUST);
+                    query = b;
                 }
-            } else {
-                columns.add(column);
+                try {
+                    JackrabbitIndexSearcher searcher = new JackrabbitIndexSearcher(
+                            session, index.getIndexReader(),
+                            index.getContext().getItemStateManager());
+                    QueryHits hits = searcher.evaluate(query);
+                    ScoreNode node = hits.nextScoreNode();
+                    while (node != null) {
+                        rows.add(new SelectorRow(
+                                columnMap, evaluator, selectorName,
+                                session.getNodeByIdentifier(node.getNodeId().toString()),
+                                node.getScore()));
+                        hits.nextScoreNode();
+                    }
+                } catch (IOException e) {
+                    throw new RepositoryException(e);
+                }
+
+                QueryResult result = new SimpleQueryResult(
+                        columnNames, selectorNames, new RowIteratorAdapter(rows));
+                return sort(result, orderings);
             }
-        }
-        OrderingImpl[] orderings = qomTree.getOrderings();
-        return new MultiColumnQueryResult(index, itemMgr,
-                session, session.getAccessManager(),
-                // TODO: spell suggestion missing
-                this, query, null, columns.toArray(new ColumnImpl[columns.size()]),
-                orderings, orderings.length == 0 && getRespectDocumentOrder(),
-                offset, limit);
+
+        };
+
+        // FIXME: handle offset and limit
+        return engine.execute(
+                qomTree.getColumns(), qomTree.getSource(),
+                qomTree.getConstraint(), qomTree.getOrderings());
     }
 
     //--------------------------< internal >------------------------------------

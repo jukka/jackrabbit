@@ -17,13 +17,13 @@
 package org.apache.jackrabbit.core.query.lucene;
 
 import javax.jcr.RepositoryException;
+import javax.jcr.query.qom.Selector;
 
-import org.apache.lucene.search.Query;
-import org.apache.jackrabbit.spi.commons.query.qom.SelectorImpl;
 import org.apache.jackrabbit.spi.commons.query.qom.FullTextSearchImpl;
+import org.apache.jackrabbit.spi.commons.query.qom.JoinImpl;
 import org.apache.jackrabbit.spi.commons.query.qom.PropertyExistenceImpl;
 import org.apache.jackrabbit.spi.commons.query.qom.SourceImpl;
-import org.apache.jackrabbit.spi.commons.query.qom.JoinImpl;
+import org.apache.lucene.search.Query;
 
 /**
  * <code>LuceneQueryFactory</code> implements a factory that creates lucene
@@ -38,7 +38,7 @@ public interface LuceneQueryFactory {
      * @return a lucene query for the given selector.
      * @throws RepositoryException if an error occurs while creating the query.
      */
-    public Query create(SelectorImpl selector) throws RepositoryException;
+    public Query create(Selector selector) throws RepositoryException;
 
     /**
      * Creates a lucene query for the given QOM full text search.

@@ -21,6 +21,7 @@ import java.util.Map;
 import java.util.HashMap;
 
 import javax.jcr.RepositoryException;
+import javax.jcr.query.qom.Selector;
 
 import org.apache.jackrabbit.spi.commons.query.qom.SelectorImpl;
 import org.apache.jackrabbit.spi.Name;
@@ -116,7 +117,7 @@ public abstract class QueryConstraint extends SelectorBasedConstraint {
             Query selectorQuery;
             BooleanQuery and = new BooleanQuery();
             try {
-                selectorQuery = factory.create(getSelector());
+                selectorQuery = factory.create((Selector) getSelector());
                 and.add(selectorQuery, BooleanClause.Occur.MUST);
                 and.add(constraint, BooleanClause.Occur.MUST);
             } catch (RepositoryException e) {

@@ -89,13 +89,6 @@ public class QueryObjectModelImpl extends QueryImpl implements QueryObjectModel 
         setInitialized();
     }
 
-
-    @Override
-    public QueryResult execute() throws RepositoryException {
-        return new QueryEngine(session).execute(
-                getColumns(), getSource(), getConstraint(), getOrderings());
-    }
-
     //-------------------------< QueryObjectModel >-----------------------------
 
     /**

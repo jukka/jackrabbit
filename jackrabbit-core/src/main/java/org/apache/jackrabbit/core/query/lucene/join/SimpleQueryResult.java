@@ -53,7 +53,7 @@ public class SimpleQueryResult implements QueryResult {
      * @param selectorNames selector names
      * @param rowIterator iterator over matching rows
      */
-    protected SimpleQueryResult(
+    public SimpleQueryResult(
             String[] columnNames, String[] selectorNames,
             RowIterator rowIterator) {
         assert columnNames != null;
